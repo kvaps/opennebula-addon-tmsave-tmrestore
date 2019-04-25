@@ -1,0 +1,70 @@
+#!/bin/bash
+
+# -------------------------------------------------------------------------- #
+# Copyright 2002-2019, OpenNebula Project, OpenNebula Systems                #
+#                                                                            #
+# Licensed under the Apache License, Version 2.0 (the "License"); you may    #
+# not use this file except in compliance with the License. You may obtain    #
+# a copy of the License at                                                   #
+#                                                                            #
+# http://www.apache.org/licenses/LICENSE-2.0                                 #
+#                                                                            #
+# Unless required by applicable law or agreed to in writing, software        #
+# distributed under the License is distributed on an "AS IS" BASIS,          #
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   #
+# See the License for the specific language governing permissions and        #
+# limitations under the License.                                             #
+#--------------------------------------------------------------------------- #
+
+DRIVER_PATH=$(dirname $0)
+
+SRC_PATH=$1
+DST_HOST=$2
+DEPLOY_ID=$3
+VM_ID=$4
+
+# There is data in stdin, read it
+DRV_ACTION=$(cat)
+
+#-------------------------------------------------------------------------------
+
+source $(dirname $0)/../../scripts_common.sh
+
+XPATH="${DRIVER_PATH}/../../datastore/xpath.rb --stdin"
+
+unset i j XPATH_ELEMENTS
+
+while IFS= read -r -d '' element; do
+    XPATH_ELEMENTS[i++]="$element"
+done < <(echo "$DRV_ACTION" | base64 -d | $XPATH \
+                    /VMM_DRIVER_ACTION_DATA/DATASTORE/TM_MAD)
+
+TM_MAD="${XPATH_ELEMENTS[j++]}"
+
+VMM_MAD=$(basename $DRIVER_PATH)
+PRERESTORE="${DRIVER_PATH}/../../tm/$TM_MAD/prerestore"
+POSTRESTORE="${DRIVER_PATH}/../../tm/$TM_MAD/postrestore"
+
+#-------------------------------------------------------------------------------
+# TM_MAD is not 'linstor_un'
+#-------------------------------------------------------------------------------
+
+if [ "$TM_MAD" != "linstor_un" ]; then
+    echo "$DRV_ACTION" | $SSH "$DST_HOST" /var/tmp/one/vmm/kvm/restore "$@"
+    exit $?
+fi
+
+#-------------------------------------------------------------------------------
+
+# execute tm/prerestore if exist
+if [ -f "$PRERESTORE" ]; then
+    $PRERESTORE "$@" || exit $?
+fi
+
+# execute vmm/save
+echo "$DRV_ACTION" | $SSH "$DST_HOST" /var/tmp/one/vmm/$VMM_MAD/restore "$@" || exit $?
+
+# execute tm/postsave if exist
+if [ -f "$POSTRESTORE" ]; then
+    $POSTRESTORE "$@" || exit $?
+fi
